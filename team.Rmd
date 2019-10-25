@@ -1,30 +1,169 @@
 ---
 title: "Lab 4"
 author: "Ethan Wanlass"
-date: "10/17/2019"
+date: "10/24/2019"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+## Background
+An excerpt of the individual player data of the Cyclone football team is available from Canvas. Dowload the [excel file](cyclonesFootball2018.xlsx) and put the file next to your Rmd files. 
+
+Some abbreviations for the column names can be found in the Glossaries sheet in the Excel file.
+
+**References:**
+
+- [Iowa State University Athelete](https://cyclones.com/index.aspx)
+- [A Beginner's Guide to American Football](https://www.youtube.com/watch?v=3t6hM5tRlfA) for the rules of American football.
+
+## Loading Data: Cyclone Football 
+
+The Cyclone football data involves multiple Excel sheets. The following loads each sheet into a dataframe as well as load the libraries that I will be using. 
+
+```{r, results = 'hide'}
+library(readxl)
+library(dplyr)
+library(tidyr)
+
+defense <- read_excel('cyclonesFootball2018.xlsx', sheet='Defensive')
+offense <- read_excel('cyclonesFootball2018.xlsx', sheet='Offensive')
+bio <- read_excel('cyclonesFootball2018.xlsx', sheet='Biography')
 ```
 
-## R Markdown
+## Cleaning data
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+The following code will give us a glimpse of what each of the dataframes look like. 
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
+```{r}
+head(defense)
+head(offense)
+head(bio)
 ```
 
-## Including Plots
+The first step to being able to analyze this data is to clean it. To start I factored the names in the dataframes defense, offense and bio. I also factored the opposing team's name in defense and offense. 
 
-You can also embed plots, for example:
+```{r}
+defClean = defense
+offClean = offense
+bioClean = bio
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+defClean$Name = factor(defClean$Name)
+offClean$Name = factor(offClean$Name)
+bioClean$Name = factor(bioClean$Name)
+
+defClean$Opponent_Opponent = factor(defClean$Opponent_Opponent)
+offClean$Opponent_Opponent = factor(offClean$Opponent_Opponent)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+Afterwards, I changed the rest of the variables in defense and offense as well as weight as a numeric variable instead of a character variable. Then did a quick check to make sure these columns were now the correct class.   
+
+```{r}
+
+defClean = defClean %>% mutate_at(3:11, as.numeric, na.rm = TRUE)
+offClean = offClean %>% mutate_at(3:12, as.numeric, na.rm = TRUE)
+bioClean = bioClean %>% mutate_at('Weight', as.numeric, na.rm = TRUE)
+
+class(defClean$Tackles_Solo)
+class(offClean$Rushing_ATT)
+class(bioClean$Weight)
+
+```
+
+In order to change the height into a better format, I seperated it into two columns: feet and inches. 
+
+```{r}
+bioClean = bioClean %>% 
+  separate(Height, into = c('Feet', 'Inches'), sep = "-")
+bioClean = bioClean %>% mutate_at(c('Feet','Inches'), as.numeric, na.rm = TRUE)
+class(bioClean$Feet)
+```
+
+Finally, I checked to see the structure of each of the cleaned data sets. 
+
+```{r}
+str(defClean)
+str(offClean)
+str(bioClean)
+```
+
+## Tidying Defense
+
+First thing I did was tidy the columns into statistic types and the amount each player made. 
+
+```{r}
+defClean = defClean %>% gather(key=Statistic, value=Amount, 3:11)
+defClean
+```
+
+The following will display a histogram of each defensive statistic:
+
+```{r}
+library(ggplot2)
+ggplot(defClean, aes(Amount)) + facet_wrap(~Statistic) + geom_histogram(binwidth = .5) 
+```
+
+Looking at these histograms we can see that Sacks, QB hurries, Passes blocked and Turnovers are rarer defensive stats. 
+
+Next, let's show the defensive performance between two specific games: West Virginia and Kansas State. We will base defensive performance on the number of solo tackles by each player. The larger number of solo tackes means a better performance. 
+
+```{r}
+solo_tackles = defClean %>% 
+  filter(Statistic == 'Tackles_Solo') 
+spreaded = solo_tackles %>% spread(key=Opponent_Opponent, value=Amount)
+class(spreaded$`West Virginia`)
+colnames(spreaded)[colnames(spreaded)=="West Virginia"] <- "West_Virginia"
+colnames(spreaded)[colnames(spreaded)=="Kansas State"] <- "Kansas_State"
+ggplot(spreaded, aes(West_Virginia,Kansas_State), na.rm = TRUE) + geom_point() + labs(title = 'Number of Solo tackles in the West Virginia and Kansas State game', x = 'West Virginia', y = 'Kansas State')
+```
+
+Looking at the scatterplot, there appears to be have been a slightly better defensive performance in the Kansas State game. 
+
+
+## Tidying Bio (B)
+Now let's turn our attention to the player biography `bioClean`.
+
+Let's seperate the column hometown into 2 columns: city and State
+
+```{r}
+bioClean = bioClean %>% 
+  separate(Hometown, into = c('City', 'State'), sep = ",")
+bioClean
+```
+
+From there we can check  the count of total players from each state. 
+
+```{r}
+bioClean %>% group_by(State) %>% summarize(Number=n())
+```
+
+From our table we can see that Iowa is where the clear majority are from followed by Ohio and Texas respectively. 
+
+## Joining DataFrames
+
+Let's take a look at where each offensive player is from. To do so we combined the offense and bio data frames into a new dataframe and then grouped by player to see their hometowns. 
+```{r}
+joint = left_join(offense,bio,by = "Name")
+joint%>% group_by(Name) %>% summarize(hometown = unique(Hometown))
+```
+
+Let's check if there is a relationship between 
+```{r}
+joint$Weight = factor(joint$Weight) 
+joint$Receiving_YDS = as.numeric(joint$Receiving_YDS) 
+
+str(joint)
+ggplot(joint, aes(Weight,Receiving_YDS)) + geom_boxplot() + labs(title = 'Number of receiving yards for each Weight', x = 'Weight', y = 'Receiving Yards')
+```
+
+Looking at these boxplots, weight does not seem to have much impact on the amount of receiving yards. The large differences are probably from individual players.  
+
+3. Explore more. Raise a question that can be answered only by looking at two or more data frames. Then answer that question.
+
+Is there a relationship between the class and the number of touchdown receptions? 
+```{r}
+joint$Class = factor(joint$Class, levels = c('Freshman', 'Redshirt Freshman', 'Sophmore', 'Redshirt Sophmore', 'Junior', 'Redshirt Junior', 'Senior', 'Redshirt Senior'))
+
+joint$Receiving_TD = as.numeric(joint$Receiving_TD)
+ggplot(joint, aes(Class, Receiving_TD)) + geom_boxplot() + coord_flip() + labs(title = 'Number of receiving touchdowns per Class', x = 'Receiving Touchdowns', y = 'Class')
+```
+
+Looking at this boxplot we can see that outside of Redshirt juniors, there were very little touchdown receptions from the Iowa State Offense. 
